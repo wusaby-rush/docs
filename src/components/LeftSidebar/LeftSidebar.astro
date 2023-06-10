@@ -1,7 +1,8 @@
 ---
 import Sponsors from './Sponsors.astro';
 import { removeLeadingSlash, removeTrailingSlash } from '../../util';
-import { getNav, useTranslations } from '../../i18n/util';
+import { getNav } from '../../util/getNav';
+import { useTranslations } from '../../i18n/util';
 import SidebarContent from './SidebarContent.astro';
 import SidebarToggleTabGroup from '../TabGroup/SidebarToggleTabGroup';
 import CommunityMenu from '../RightSidebar/CommunityMenu.astro';
@@ -34,7 +35,7 @@ let activeTab: 'learn' | 'api' = 'learn';
 
 // Certain pages are not in the sidebar nav, so we manually set the active tab based on other factors (e.g. Algolia page category).
 const isReference = ['Error Reference', 'Reference'].includes(
-	getPageCategory(new URL(currentPage, import.meta.url))
+	getPageCategory({ pathname: currentPage })
 );
 if (isReference) {
 	activeTab = 'api';
@@ -60,13 +61,13 @@ if (isReference) {
 			type={'learn'}
 			defaultActiveTab={activeTab}
 			sidebarSections={learnSections}
-			{currentPageMatch}
+			currentPageMatch={currentPageMatch}
 		/>
 		<SidebarContent
 			type={'api'}
 			defaultActiveTab={activeTab}
 			sidebarSections={apiSections}
-			{currentPageMatch}
+			currentPageMatch={currentPageMatch}
 		/>
 		<li>
 			<CommunityMenu hideOnLargerScreens={true} />
@@ -83,11 +84,18 @@ if (isReference) {
 	</ul>
 </nav>
 
-<script>
-	window.addEventListener('DOMContentLoaded', () => {
-		var target = document.querySelector('[data-current-parent="true"]');
-		target?.scrollIntoView({ block: 'center' });
-	});
+<!-- Preserve sidebar scroll across page loads -->
+<script is:inline>
+	{
+		const leftSidebar = document.querySelector('.nav-groups');
+		const leftSidebarScroll = localStorage.getItem('sidebar-scroll');
+		if (leftSidebarScroll !== null) {
+			leftSidebar.scrollTop = parseInt(leftSidebarScroll, 10);
+		}
+		window.addEventListener('beforeunload', () => {
+			localStorage.setItem('sidebar-scroll', leftSidebar.scrollTop);
+		});
+	}
 </script>
 
 <style>

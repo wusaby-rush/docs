@@ -5,7 +5,6 @@ export default NavDictionary({
 	'getting-started': '新手上路',
 	install: '安裝',
 	'editor-setup': '編輯器設定',
-	migrate: '轉移指南',
 
 	// Core Concepts
 	coreConcepts: '主要概念',
@@ -33,9 +32,9 @@ export default NavDictionary({
 	'guides/server-side-rendering': '伺服器渲染 (SSR)',
 	'guides/styling': 'CSS 樣式',
 	'guides/images': '圖像',
-	'guides/fonts': '字體',
-	'core-concepts/sharing-state': '共享狀態',
-	'guides/rss': 'RSS',
+	// 'guides/fonts': '字體',
+	// 'core-concepts/sharing-state': '共享狀態',
+	// 'guides/rss': 'RSS',
 
 	// Configuration
 	configuration: '設定',

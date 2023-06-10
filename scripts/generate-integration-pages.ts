@@ -1,5 +1,16 @@
 import kleur from 'kleur';
-import type { Definition, HTML, Link, Root, Text } from 'mdast';
+import type {
+	Blockquote,
+	Definition,
+	HTML,
+	Link,
+	ListContent,
+	Paragraph,
+	PhrasingContent,
+	Root,
+	Text,
+} from 'mdast';
+import { toString } from 'mdast-util-to-string';
 import fetch from 'node-fetch';
 import fs from 'node:fs';
 import { remark } from 'remark';
@@ -13,6 +24,7 @@ interface IntegrationData {
 	category: 'renderer' | 'adapter' | 'other';
 	readme: string;
 	srcdir: string;
+	i18nReady: string;
 }
 
 const prettyCategoryDescription: Record<string, unknown> = {
@@ -20,11 +32,13 @@ const prettyCategoryDescription: Record<string, unknown> = {
 	adapter: 'SSR adapter to deploy your Astro project',
 	other: 'integration in your Astro project',
 };
+
 class IntegrationPagesBuilder {
 	readonly #githubToken?: string;
 	readonly #sourceBranch: string;
 	readonly #sourceRepo: string;
 	readonly #deprecatedIntegrations = new Set(['turbolinks']);
+	readonly #i18nNotReadyIntegrations = new Set(['markdoc']);
 
 	constructor(opts: { githubToken?: string; sourceBranch: string; sourceRepo: string }) {
 		this.#githubToken = opts.githubToken;
@@ -42,7 +56,7 @@ class IntegrationPagesBuilder {
 			} else {
 				output.warning(
 					'You have not set the GITHUB_TOKEN environment variable. ' +
-						'Calls to Github’s API may hit rate limits without it.'
+						'Calls to GitHub’s API may hit rate limits without it.'
 				);
 			}
 		}
@@ -77,8 +91,9 @@ class IntegrationPagesBuilder {
 						: keywords.includes('astro-adapter')
 						? 'adapter'
 						: 'other';
+					const i18nReady = (!this.#i18nNotReadyIntegrations.has(pkg.name)).toString();
 					const readme = await (await fetch(readmeURL)).text();
-					return { name, category, readme, srcdir: pkg.name };
+					return { name, category, readme, srcdir: pkg.name, i18nReady };
 				})
 		);
 	}
@@ -90,7 +105,13 @@ class IntegrationPagesBuilder {
 	 * - Add the correct base to any relative links
 	 * - _Remove_ the base from any docs links
 	 */
-	async #processReadme({ name, readme, srcdir, category }: IntegrationData): Promise<string> {
+	async #processReadme({
+		name,
+		readme,
+		srcdir,
+		category,
+		i18nReady,
+	}: IntegrationData): Promise<string> {
 		// Remove title from body
 		readme = readme.replace(/^# (.+)/, '');
 		const githubLink = `https://github.com/${this.#sourceRepo}/tree/${
@@ -118,17 +139,17 @@ class IntegrationPagesBuilder {
 #
 # TRANSLATORS: please remove this note and the <DontEditWarning/> component.
 
-layout: ~/layouts/IntegrationLayout.astro
+type: integration
 title: '${name}'
 description: ${createDescription(name, category)}
 githubURL: '${githubLink}'
 hasREADME: true
 category: ${category}
-i18nReady: false
+i18nReady: ${i18nReady}
 ---
 
 import Video from '~/components/Video.astro';
-import DontEditWarning from '../../../../components/DontEditWarning.astro';
+import DontEditWarning from '~/components/DontEditWarning.astro';
 
 <DontEditWarning/>\n\n` + readme;
 		return readme;
@@ -137,7 +158,7 @@ import DontEditWarning from '../../../../components/DontEditWarning.astro';
 	async #writeReadme(packageName: string, readme: string): Promise<void> {
 		const unscopedName = packageName.split('/').pop();
 		return await fs.promises.writeFile(
-			`src/pages/en/guides/integrations-guide/${unscopedName}.mdx`,
+			`src/content/docs/en/guides/integrations-guide/${unscopedName}.mdx`,
 			readme,
 			'utf8'
 		);
@@ -170,7 +191,8 @@ function absoluteLinks({ base }: { base: string }) {
 		function visitor(node: Link | Definition) {
 			// Sanitize URL by removing leading `/`
 			const relativeUrl = node.url.replace(/^.?\//, '');
-			node.url = new URL(relativeUrl, base).href;
+			// Don't add absolute path to local links.
+			node.url = node.url.startsWith('#') ? node.url : new URL(relativeUrl, base).href;
 		}
 		visit(tree, 'link', visitor);
 		visit(tree, 'definition', visitor);
@@ -192,35 +214,38 @@ function closeUnclosedLinebreaks() {
 /** Remark plugin to replace GitHub note/warning syntax with docs-style asides. */
 function replaceAsides() {
 	return function transform(tree: Root) {
-		visit(tree, 'blockquote', (node) => {
+		visit(tree, 'blockquote', (node: Blockquote | Paragraph) => {
 			const openingParagraph = node.children[0];
-			const [firstChild, trailingText] = openingParagraph.children;
+
+			if (!('children' in openingParagraph)) return;
+			const [firstChild, trailingText, ...children] = openingParagraph.children;
 
 			// check for **Note:** or **Warning:** at the beginning of the first paragraph
-			if (firstChild.type !== 'strong' || !/Note|Warning/.test(firstChild.children[0].value)) {
-				return;
-			}
+			if (firstChild.type !== 'strong') return;
+			const firstChildText = toString(firstChild);
+			if (!/Note|Warning/.test(firstChildText)) return;
 
 			// assign aside type
-			const AsideType =
-				firstChild.children[0].value.toLowerCase() === 'warning' ? 'caution' : 'note';
+			const AsideType = firstChildText.toLowerCase() === 'warning' ? 'caution' : 'note';
 
 			// remove blockquotes `>`
 			node.type = 'paragraph';
 
-			// replace **strong** for :::aside
-			firstChild.type = 'text';
-			firstChild.value = `:::${AsideType}`;
-
 			// if trailingText starts with `: ` replace it with a newline
-			trailingText.value = trailingText.value.replace(/^: /, '\n');
+			if ('value' in trailingText) {
+				trailingText.value = trailingText.value.replace(/^: /, '\n');
+			}
 
-			// append ::: at end of the paragraph
-			const lastChild = {
-				type: 'text',
-				value: '\n:::',
-			};
-			openingParagraph.children.push(lastChild);
+			// Opening and closing ::: text to wrap blockquote.
+			const openAside: Text = { type: 'text', value: `:::${AsideType}` };
+			const closeAside: Text = { type: 'text', value: '\n:::' };
+
+			openingParagraph.children = [
+				openAside,
+				trailingText,
+				...children,
+				closeAside,
+			] as ListContent[];
 		});
 	};
 }
@@ -262,7 +287,9 @@ function removeTOC() {
 			const firstItemContent = node.children[0].children[0];
 			if (firstItemContent.type !== 'paragraph') return;
 			return firstItemContent.children.some(
-				(child) => child.type === 'link' && child.url.startsWith('#why')
+				(child: PhrasingContent) =>
+					child.type === 'link' &&
+					(child.url.startsWith('#why') || child.url.startsWith('#installation'))
 			);
 		});
 	};
